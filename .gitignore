@@ -5,6 +5,7 @@ output/
 logs/*.log
 config/client_secret.json
 config/token.json
+config/uploaded_clips.json
 *.mp4
 *.mov
 *.avi

@@ -4,6 +4,7 @@ import TwitchService from './services/twitchService.js';
 import DownloadService from './services/downloadService.js';
 import ShortsService from './services/shortsService.js';
 import YouTubeService from './services/youtubeService.js';
+import UploadTracker from './utils/uploadTracker.js';
 import logger from './utils/logger.js';
 
 dotenv.config();
@@ -17,6 +18,7 @@ class TwitchToYouTube {
     this.downloadService = new DownloadService();
     this.shortsService = new ShortsService();
     this.youtubeService = new YouTubeService();
+    this.uploadTracker = new UploadTracker();
   }
 
   async processClips() {
@@ -45,9 +47,20 @@ class TwitchToYouTube {
         return;
       }
 
-      logger.info(`Found ${clips.length} clips. Starting download...`);
+      logger.info(`Found ${clips.length} clips. Filtering out already uploaded clips...`);
 
-      const downloadedClips = await this.downloadService.downloadClips(clips);
+      // Filter out clips that have already been uploaded
+      const newClips = clips.filter(clip => !this.uploadTracker.isUploaded(clip.id));
+      logger.info(`${newClips.length} new clips to process (${clips.length - newClips.length} already uploaded)`);
+
+      if (newClips.length === 0) {
+        logger.info('All clips have already been uploaded. Nothing new to process.');
+        return;
+      }
+
+      logger.info(`Starting download...`);
+
+      const downloadedClips = await this.downloadService.downloadClips(newClips);
 
       if (downloadedClips.length === 0) {
         logger.error('Failed to download any clips. Exiting.');
@@ -87,6 +100,9 @@ class TwitchToYouTube {
           logger.info(`✓ Uploaded: ${uploadResult.url}`);
           uploadResults.push(uploadResult);
 
+          // Mark clip as uploaded
+          this.uploadTracker.markAsUploaded(clip.id);
+
           // Add delay between uploads to avoid rate limiting
           if (i < downloadedClips.length - 1) {
             logger.info('Waiting 5 seconds before next upload...');
@@ -118,11 +134,17 @@ class TwitchToYouTube {
   generateShortDescription(clip) {
     return `${clip.title}
 
+⚠️ DISCLAIMER: This is a clip compilation channel. I am NOT affiliated with any streamers featured.
+All content belongs to the original creators.
+
 Streamer: ${clip.broadcaster_name}
 Clipped by: ${clip.creator_name}
 
 🎮 Watch live: https://twitch.tv/${clip.broadcaster_name}
 🔗 Original clip: ${clip.url}
+
+This channel is a fan compilation showcasing highlights from ${process.env.GAME_NAME || 'gaming'} streams.
+No copyright infringement intended. All rights belong to respective owners.
 
 #Twitch #${clip.broadcaster_name.replace(/\s+/g, '')} #TwitchClips #Shorts #${process.env.GAME_NAME ? process.env.GAME_NAME.replace(/\s+/g, '') : 'Gaming'}`;
   }
