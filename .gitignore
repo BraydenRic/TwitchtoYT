@@ -2,10 +2,9 @@ node_modules/
 .env
 downloads/
 output/
-logs/*.log
+logs/
 config/client_secret.json
 config/token.json
-config/uploaded_clips.json
 *.mp4
 *.mov
 *.avi

@@ -1,0 +1,76 @@
+name: Upload Twitch Clips to YouTube
+
+on:
+  schedule:
+    # Runs every day at 9:00 AM UTC (adjust as needed)
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  upload-clips:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          sudo pip install yt-dlp
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Create config directory
+        run: mkdir -p config downloads output logs
+
+      - name: Setup YouTube credentials
+        run: |
+          echo '${{ secrets.YOUTUBE_CLIENT_SECRET }}' > config/client_secret.json
+          echo '${{ secrets.YOUTUBE_TOKEN }}' > config/token.json
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          TWITCH_CLIENT_ID=${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET=${{ secrets.TWITCH_CLIENT_SECRET }}
+          CLIPS_COUNT=${{ vars.CLIPS_COUNT || '10' }}
+          CLIPS_PERIOD=${{ vars.CLIPS_PERIOD || 'day' }}
+          GAME_NAME=${{ vars.GAME_NAME || 'Just Chatting' }}
+          LANGUAGE=${{ vars.LANGUAGE || 'en' }}
+          VIDEO_TAGS=${{ vars.VIDEO_TAGS || 'twitch,clips,shorts,gaming,highlights' }}
+          VIDEO_CATEGORY_ID=${{ vars.VIDEO_CATEGORY_ID || '20' }}
+          VIDEO_PRIVACY=${{ vars.VIDEO_PRIVACY || 'public' }}
+          EOF
+
+      - name: Run clip upload
+        run: npm start -- --once
+
+      - name: Commit updated tracker
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add config/uploaded_clips.json
+          git diff --staged --quiet || git commit -m "Update uploaded clips tracker [skip ci]"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_number }}
+          path: logs/
+          retention-days: 7

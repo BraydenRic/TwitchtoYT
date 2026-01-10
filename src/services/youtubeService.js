@@ -132,6 +132,9 @@ class YouTubeService {
       };
     } catch (error) {
       logger.error('Failed to upload video to YouTube:', error.message);
+      if (error.response && error.response.data) {
+        logger.error('YouTube API Error Details:', JSON.stringify(error.response.data, null, 2));
+      }
       throw error;
     }
   }

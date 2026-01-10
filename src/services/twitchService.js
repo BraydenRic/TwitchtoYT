@@ -71,25 +71,62 @@ class TwitchService {
 
       logger.info(`Fetching top ${count} clips for period: ${period} (Game ID: ${gameId})${language ? ` (Language: ${language})` : ''}`);
 
-      // Fetch more clips than needed to account for filtering
-      const fetchCount = language ? count * 3 : count;
+      // Fetch multiple pages to get a larger sample for accurate top clips
+      // For popular categories, we need many pages to find truly top clips
+      const maxPages = parseInt(process.env.CLIPS_FETCH_PAGES) || 50; // Default: 5000 clips (50 pages * 100)
+      let allClips = [];
+      let cursor = null;
+      let pageCount = 0;
 
-      const params = {
-        first: Math.min(fetchCount, 100), // Twitch API limit is 100
-        started_at: this.getStartDate(period),
-        ended_at: new Date().toISOString(),
-        game_id: gameId
-      };
+      logger.info(`Fetching clips with pagination (up to ${maxPages} pages) to find true top clips...`);
 
-      const response = await axios.get('https://api.twitch.tv/helix/clips', {
-        params,
-        headers: {
-          'Client-ID': this.clientId,
-          'Authorization': `Bearer ${this.accessToken}`
+      do {
+        const params = {
+          first: 100, // Max per page
+          started_at: this.getStartDate(period),
+          ended_at: new Date().toISOString(),
+          game_id: gameId
+        };
+
+        if (cursor) {
+          params.after = cursor;
         }
-      });
 
-      let clips = response.data.data;
+        try {
+          const response = await axios.get('https://api.twitch.tv/helix/clips', {
+            params,
+            headers: {
+              'Client-ID': this.clientId,
+              'Authorization': `Bearer ${this.accessToken}`
+            }
+          });
+
+          const fetchedClips = response.data.data;
+          allClips = allClips.concat(fetchedClips);
+          pageCount++;
+
+          cursor = response.data.pagination?.cursor;
+
+          logger.info(`Fetched page ${pageCount}: ${fetchedClips.length} clips (total: ${allClips.length})`);
+
+          // Add small delay between requests to avoid rate limiting
+          if (cursor && pageCount < maxPages) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } catch (error) {
+          logger.warn(`Failed to fetch page ${pageCount + 1}: ${error.message}. Stopping pagination.`);
+          break;
+        }
+
+        // Stop if no more pages or we've fetched enough pages
+      } while (cursor && pageCount < maxPages);
+
+      logger.info(`Fetched ${allClips.length} total clips from ${pageCount} pages`);
+
+      // Sort ALL clips by view count (descending) to get true top clips
+      allClips.sort((a, b) => b.view_count - a.view_count);
+
+      let clips = allClips;
 
       // Filter by language if specified
       if (language) {
@@ -102,10 +139,12 @@ class TwitchService {
         });
 
         logger.info(`Filtered to ${clips.length} ${language} clips`);
-        clips = clips.slice(0, count);
       }
 
-      logger.info(`Successfully fetched ${clips.length} clips`);
+      // Take top N clips after sorting and filtering
+      clips = clips.slice(0, count);
+
+      logger.info(`Returning top ${clips.length} clips by view count`);
 
       return clips.map(clip => ({
         id: clip.id,
