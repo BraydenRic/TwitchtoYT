@@ -1,0 +1,51 @@
+name: Upload Twitch Clips to YouTube
+
+on:
+  schedule:
+    - cron: '0 0,8,16 * * *'
+  workflow_dispatch: # allows manual trigger from GitHub UI
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ffmpeg and yt-dlp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg yt-dlp
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Write config files
+        run: |
+          mkdir -p config
+          echo '${{ secrets.YOUTUBE_CLIENT_SECRET_JSON }}' > config/client_secret.json
+          echo '${{ secrets.YOUTUBE_TOKEN_JSON }}' > config/token.json
+
+      - name: Create .env
+        run: |
+          cat <<EOF > .env
+          TWITCH_CLIENT_ID=${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET=${{ secrets.TWITCH_CLIENT_SECRET }}
+          CLIPS_COUNT=3
+          CLIPS_PERIOD=day
+          CLIPS_FETCH_PAGES=10
+          GAME_NAME=Just Chatting
+          LANGUAGE=en
+          VIDEO_TAGS=twitch,justchatting,clips,shorts,funny
+          VIDEO_CATEGORY_ID=20
+          VIDEO_PRIVACY=public
+          EOF
+
+      - name: Run uploader
+        run: node src/index.js --once
