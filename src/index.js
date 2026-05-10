@@ -4,7 +4,6 @@ import TwitchService from './services/twitchService.js';
 import DownloadService from './services/downloadService.js';
 import ShortsService from './services/shortsService.js';
 import YouTubeService from './services/youtubeService.js';
-import UploadTracker from './utils/uploadTracker.js';
 import logger from './utils/logger.js';
 
 dotenv.config();
@@ -18,14 +17,13 @@ class TwitchToYouTube {
     this.downloadService = new DownloadService();
     this.shortsService = new ShortsService();
     this.youtubeService = new YouTubeService();
-    this.uploadTracker = new UploadTracker();
   }
 
   async processClips() {
     try {
       logger.info('Starting clip processing...');
 
-      const clipsCount = parseInt(process.env.CLIPS_COUNT) || 10;
+      const clipsCount = parseInt(process.env.CLIPS_COUNT) || 3;
       const clipsPeriod = process.env.CLIPS_PERIOD || 'day';
       const gameName = process.env.GAME_NAME;
       const language = process.env.LANGUAGE || null;
@@ -35,10 +33,12 @@ class TwitchToYouTube {
         gameId = await this.twitchService.getGameId(gameName);
       }
 
+      // Fetch a buffer so deduplication never leaves us short of clipsCount
+      const fetchCount = clipsCount * 5;
       const clips = await this.twitchService.getTopClips({
         gameId,
         period: clipsPeriod,
-        count: clipsCount,
+        count: fetchCount,
         language
       });
 
@@ -47,11 +47,11 @@ class TwitchToYouTube {
         return;
       }
 
-      logger.info(`Found ${clips.length} clips. Filtering out already uploaded clips...`);
+      logger.info(`Found ${clips.length} clips. Checking YouTube for already uploaded clips...`);
 
-      // Filter out clips that have already been uploaded
-      const newClips = clips.filter(clip => !this.uploadTracker.isUploaded(clip.id));
-      logger.info(`${newClips.length} new clips to process (${clips.length - newClips.length} already uploaded)`);
+      const uploadedClipIds = await this.youtubeService.getUploadedClipIds();
+      const newClips = clips.filter(clip => !uploadedClipIds.has(clip.id)).slice(0, clipsCount);
+      logger.info(`${newClips.length} new clips to process (skipped ${clips.length - newClips.length} duplicates/extras)`);
 
       if (newClips.length === 0) {
         logger.info('All clips have already been uploaded. Nothing new to process.');
@@ -100,9 +100,6 @@ class TwitchToYouTube {
           logger.info(`✓ Uploaded: ${uploadResult.url}`);
           uploadResults.push(uploadResult);
 
-          // Mark clip as uploaded
-          this.uploadTracker.markAsUploaded(clip.id);
-
           // Add delay between uploads to avoid rate limiting
           if (i < downloadedClips.length - 1) {
             logger.info('Waiting 5 seconds before next upload...');
@@ -142,6 +139,7 @@ Clipped by: ${clip.creator_name}
 
 🎮 Watch live: https://twitch.tv/${clip.broadcaster_name}
 🔗 Original clip: ${clip.url}
+🆔 Clip ID: ${clip.id}
 
 This channel is a fan compilation showcasing highlights from ${process.env.GAME_NAME || 'gaming'} streams.
 No copyright infringement intended. All rights belong to respective owners.

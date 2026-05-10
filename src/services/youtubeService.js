@@ -72,7 +72,10 @@ class YouTubeService {
 
     const authUrl = this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
-      scope: ['https://www.googleapis.com/auth/youtube.upload']
+      scope: [
+        'https://www.googleapis.com/auth/youtube.upload',
+        'https://www.googleapis.com/auth/youtube.readonly'
+      ]
     });
 
     return authUrl;
@@ -85,6 +88,55 @@ class YouTubeService {
     fs.writeFileSync(tokenPath, JSON.stringify(tokens, null, 2));
 
     logger.info('Token saved successfully');
+  }
+
+  async getUploadedClipIds() {
+    if (!this.youtube) {
+      await this.authenticate();
+    }
+
+    const clipIds = new Set();
+    let pageToken = undefined;
+
+    try {
+      // Get our channel's uploads playlist
+      const channelRes = await this.youtube.channels.list({
+        part: ['contentDetails'],
+        mine: true
+      });
+
+      const uploadsPlaylistId = channelRes.data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+      if (!uploadsPlaylistId) {
+        logger.warn('Could not find uploads playlist — skipping deduplication');
+        return clipIds;
+      }
+
+      // Page through all uploaded videos and extract clip IDs from descriptions
+      do {
+        const res = await this.youtube.playlistItems.list({
+          part: ['snippet'],
+          playlistId: uploadsPlaylistId,
+          maxResults: 50,
+          pageToken
+        });
+
+        for (const item of res.data.items || []) {
+          const description = item.snippet?.description || '';
+          const match = description.match(/🆔 Clip ID: (.+)/);
+          if (match) {
+            clipIds.add(match[1].trim());
+          }
+        }
+
+        pageToken = res.data.nextPageToken;
+      } while (pageToken);
+
+      logger.info(`Found ${clipIds.size} already-uploaded clip IDs from YouTube`);
+    } catch (error) {
+      logger.warn(`Failed to fetch uploaded clip IDs from YouTube: ${error.message} — skipping deduplication`);
+    }
+
+    return clipIds;
   }
 
   async uploadVideo(videoPath, title, description, tags = [], categoryId = '20', privacyStatus = 'public') {

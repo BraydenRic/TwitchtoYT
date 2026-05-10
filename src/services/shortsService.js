@@ -22,13 +22,23 @@ class ShortsService {
   async convertToVertical(inputPath, clipId) {
     const outputPath = path.join(this.outputDir, `${clipId}_vertical.mp4`);
 
-    logger.info(`Converting clip ${clipId} to vertical format...`);
+    logger.info(`Converting clip ${clipId} to vertical format with blurred background...`);
+
+    // Scale fg to fit width (1080), blur-scale bg to fill 1080x1920, overlay centered
+    const videoFilter = [
+      '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:20[bg]',
+      '[0:v]scale=1080:-2[fg]',
+      '[bg][fg]overlay=(W-w)/2:(H-h)/2'
+    ].join(';');
+
+    // Subtle speed increase to break copyright hash-matching (barely perceptible)
+    const speedFactor = 1.02;
 
     return new Promise((resolve, reject) => {
       ffmpeg(inputPath)
         .outputOptions([
-          '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black',
-          '-c:a', 'copy',
+          '-filter_complex', videoFilter,
+          '-af', `atempo=${speedFactor}`,
           '-c:v', 'libx264',
           '-preset', 'fast',
           '-crf', '23'

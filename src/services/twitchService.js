@@ -1,6 +1,40 @@
 import axios from 'axios';
 import logger from '../utils/logger.js';
 
+// Games with aggressive copyright enforcement — clips from these are high-risk
+const COPYRIGHT_BLOCKED_GAMES = new Set([
+  // Music/rhythm games
+  'Just Dance 2024 Edition',
+  'Just Dance 2023 Edition',
+  'Just Dance 2022',
+  'Just Dance 2021',
+  'Just Dance 2020',
+  'Beat Saber',
+  'Rock Band 4',
+  'Guitar Hero Live',
+  'Theatrhythm Final Bar Line',
+  // Nintendo titles (extremely aggressive DMCA)
+  'Super Mario Bros. Wonder',
+  'The Legend of Zelda: Tears of the Kingdom',
+  'The Legend of Zelda: Breath of the Wild',
+  'Super Smash Bros. Ultimate',
+  'Mario Kart 8 Deluxe',
+  'Splatoon 3',
+  'Pokémon Scarlet',
+  'Pokémon Violet',
+  'Animal Crossing: New Horizons',
+  // Sports games with licensed music/commentary
+  'EA Sports FC 24',
+  'EA Sports FC 25',
+  'FIFA 23',
+  'NBA 2K25',
+  'NBA 2K24',
+  'WWE 2K24',
+  // Other known problematic titles
+  'Hogwarts Legacy',
+  'Persona 5 Royal',
+]);
+
 class TwitchService {
   constructor(clientId, clientSecret) {
     this.clientId = clientId;
@@ -39,6 +73,10 @@ class TwitchService {
   }
 
   async getGameId(gameName) {
+    if (COPYRIGHT_BLOCKED_GAMES.has(gameName)) {
+      throw new Error(`"${gameName}" is on the copyright-blocked list and cannot be used`);
+    }
+
     try {
       await this.ensureValidToken();
 
@@ -200,8 +238,9 @@ class TwitchService {
 
   async getDefaultGameId() {
     const popularGames = ['League of Legends', 'Grand Theft Auto V', 'Fortnite', 'Valorant', 'Minecraft'];
+    const safeGames = popularGames.filter(g => !COPYRIGHT_BLOCKED_GAMES.has(g));
 
-    for (const gameName of popularGames) {
+    for (const gameName of safeGames) {
       try {
         return await this.getGameId(gameName);
       } catch (error) {
